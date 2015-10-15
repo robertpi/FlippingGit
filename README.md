@@ -1,0 +1,1 @@
+Library aimed at providing low level access to git objects in an F# friendly way.
