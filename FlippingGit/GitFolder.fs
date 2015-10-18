@@ -19,11 +19,11 @@ type GitFolder(location: string) =
 
     member x.Log() = 
         let headHash = getHeadHash()
+
         let walkCommits (hash: Hash, count) =
-            printfn "%s %s %s" objectsDir hash.DirectoryName hash.FileName
 
             let objectPath = Path.Combine(objectsDir, hash.DirectoryName, hash.FileName)
-            printfn "objectPath: %s" objectPath
+            Debug.printfn "objectPath: %s" objectPath
             let gitObject = GitObject.ParseFile objectPath
             match gitObject with
             | Commit (_, commit) -> 
@@ -33,6 +33,7 @@ type GitFolder(location: string) =
                 | Some (_)
                 | None -> None
             | _ -> failwithf "Unexpected object type: %A" gitObject
+
         Seq.unfold walkCommits (headHash, 0)
        
         

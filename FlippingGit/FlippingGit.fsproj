@@ -53,6 +53,7 @@
     <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Debug.fs" />
     <Compile Include="GitTypes.fs" />
     <Compile Include="Crypto.fs" />
     <Compile Include="GitObjects.fs" />

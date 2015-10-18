@@ -54,7 +54,7 @@ module Helpers =
         let ra = new ResizeArray<byte>()
         let rec innerLoop index =
             let byteAsInt = stream.ReadByte()
-            printfn "read %i" byteAsInt
+            Debug.printfn "read %i" byteAsInt
             match byteAsInt with
             | -1 -> 
                 if index = 0 then None
@@ -89,7 +89,7 @@ module Helpers =
         let readKeyValuePair offset =
             if buffer.Length >= offset then 
                 let label, offset = stringUntil buffer ' ' offset
-                printfn "reading %s" label
+                Debug.printfn "reading %s" label
                 if tagsToRead.Contains label then
                     let value, offset = stringUntil buffer '\n' (offset + 1)
                     Some ((label, value), offset + 1)
@@ -117,10 +117,12 @@ type Hash =
       String: string }
     member this.DirectoryName = this.String.[0 .. 1]
     member this.FileName = this.String.[2 ..]
+
     static member FromByteArray bytes =
         let chars = Helpers.byteArrayToHexChars bytes
         { Bytes = bytes
           String = new String(chars) }
+
     static member FromString string =
         let bytes = Helpers.stringToByteArray string
         { Bytes = bytes
@@ -130,24 +132,32 @@ type TreeLine =
     { Flags: int
       Name: string
       Hash: Hash }
+
     static member ParseFromStream (stream: Stream) =
-        printfn "starting ParseFromStream"
         let bufferOpt = Helpers.readStreamUntilNull stream
+
         let treeLineOfBuffer buffer =
-            printfn "%A - %s" buffer (System.Text.Encoding.ASCII.GetString buffer)
+            Debug.printfn "%A - %s" buffer (System.Text.Encoding.ASCII.GetString buffer)
             let flags, offset = Helpers.stringUntil buffer ' ' 0
-            let filename, offset = Helpers.stringUntil buffer '\u0000' offset
+            let filename, _ = Helpers.stringUntil buffer '\u0000' offset
             let hashBuffer = Array.zeroCreate 20
             let read = stream.Read(hashBuffer, 0, hashBuffer.Length)
-            // TODO test read
-            let hashStart = offset + 1
-            let hashEnd = hashStart + 20
-            let treeLine =
-                { Flags = int flags
-                  Name = filename
-                  Hash= Hash.FromByteArray hashBuffer }
-            treeLine
+            { Flags = int flags
+              Name = filename
+              Hash= Hash.FromByteArray hashBuffer }
+
         Option.map treeLineOfBuffer bufferOpt
+
+type Tree = 
+    { TreeLines: TreeLine[] }
+
+    static member ParseFromStream stream =
+        let treeLines = 
+            Seq.initInfinite (fun i -> TreeLine.ParseFromStream stream)
+            |> Seq.takeWhile (fun x -> Option.isSome x)
+            |> Seq.map (fun x -> Option.get x)
+            |> Seq.toArray
+        { TreeLines = treeLines }
 
 type Commit =
     { Tree: Hash
@@ -158,7 +168,7 @@ type Commit =
     static member ParseFromStream (stream: Stream) length =
         let tagsToRead = [ "tree"; "parent"; "author"; "committer"] |> Set.ofList
         let map, text = Helpers.tagsToMap stream length tagsToRead
-        printfn "%A" map
+        Debug.printfn "%A" map
         { Tree =  map.["tree"] |> Hash.FromString
           Parent = map.TryFind "parent" |> Option.map Hash.FromString
           Author = map.["author"]
@@ -181,26 +191,19 @@ type Tag =
 
 type GitObject =
     | Blob of int * (unit -> Stream)
-    | Tree of int * TreeLine[]
+    | Tree of int * Tree
     | Commit of int * Commit
     | Tag of int * Tag
 
     static member ParseFile path =
         use deflateStream = Helpers.openDeflateStream path
         let tag, length = Helpers.readObjectHeader deflateStream
-        printfn "read tag"
-        let readStream() = 
-            let stream = new DeflateStream(File.OpenRead(path), CompressionMode.Decompress)
-            stream:> Stream
         match tag with
-        | "blob" -> Blob (length, readStream)
+        | "blob" -> 
+            Blob (length, fun () -> Helpers.openDeflateStream path :> Stream)
         | "tree" -> 
-            let treeLines = 
-                Seq.initInfinite (fun i -> TreeLine.ParseFromStream deflateStream)
-                |> Seq.takeWhile (fun x -> Option.isSome x)
-                |> Seq.map (fun x -> Option.get x)
-                |> Seq.toArray
-            Tree (length, treeLines)
+            let tree = Tree.ParseFromStream deflateStream
+            Tree (length, tree)
         | "commit" -> 
             let commit = Commit.ParseFromStream deflateStream length
             Commit (length, commit)
